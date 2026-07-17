@@ -47,8 +47,23 @@ os.system("pip install -q albumentations opencv-python-headless scikit-image sci
 # uploaded dataset (visible in the "Add Input" panel / the input path).
 
 # %%
-DATA_ROOT = "/kaggle/input/YOUR-DATASET-SLUG/GAVE2_preliminary"
-assert os.path.exists(f"{DATA_ROOT}/training/images"), f"Dataset not found at {DATA_ROOT} -- check the slug"
+# NOTE: private Kaggle datasets mount one level deeper than public ones --
+# /kaggle/input/datasets/<username>/<slug>/... not /kaggle/input/<slug>/...
+# (confirmed empirically 2026-07-17). This tries both layouts.
+candidates = [
+    "/kaggle/input/datasets/aaronajit/gave2-preliminary/GAVE2_preliminary",
+    "/kaggle/input/gave2-preliminary/GAVE2_preliminary",
+    "/kaggle/input/gave2-preliminary",
+]
+os.system("find /kaggle/input -maxdepth 4")
+
+DATA_ROOT = None
+for c in candidates:
+    if os.path.exists(f"{c}/training/images"):
+        DATA_ROOT = c
+        break
+assert DATA_ROOT is not None, f"Dataset not found in any of {candidates} -- check the find output above and set DATA_ROOT manually"
+print("DATA_ROOT =", DATA_ROOT)
 
 # %% [markdown]
 # ## Cell 4: (optional) resume from a previous session's checkpoint
