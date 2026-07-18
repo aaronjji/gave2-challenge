@@ -48,9 +48,28 @@ def parse_args():
     p.add_argument("--max-steps", type=int, default=None)
     p.add_argument("--max-seconds", type=float, default=None)
     p.add_argument("--checkpoint-every-epochs", type=int, default=2)
+    p.add_argument("--val-every-epochs", type=int, default=5, help="See train_task1.py")
     p.add_argument("--resume", action="store_true")
     p.add_argument("--seed", type=int, default=77)
     return p.parse_args()
+
+
+@torch.no_grad()
+def run_validation(model, val_loader, criterion, device, amp_enabled, amp_torch_dtype):
+    model.eval()
+    total_loss = 0.0
+    n = 0
+    for batch in val_loader:
+        image = batch["image"].to(device, non_blocking=True)
+        label = batch["label"].to(device, non_blocking=True)
+        roi = batch["roi"].to(device, non_blocking=True)
+        with torch.amp.autocast("cuda", dtype=amp_torch_dtype, enabled=amp_enabled):
+            predictions = model(image)
+            loss = criterion(predictions, label, roi)
+        total_loss += loss.item()
+        n += 1
+    model.train()
+    return total_loss / max(n, 1)
 
 
 def main():
@@ -98,7 +117,9 @@ def main():
 
     global_step = 0
     start_epoch = 0
+    best_val_loss = float("inf")
     latest_path = out_dir / "latest.pth"
+    best_path = out_dir / "best.pth"
     log_path = out_dir / "train_log.csv"
 
     if args.resume and latest_path.exists():
@@ -108,15 +129,17 @@ def main():
         scaler.load_state_dict(ckpt["scaler"])
         start_epoch = ckpt["epoch"]
         global_step = ckpt["global_step"]
+        best_val_loss = ckpt.get("best_val_loss", float("inf"))
         print(f"Resumed from {latest_path}: epoch={start_epoch} global_step={global_step}")
     else:
         with open(log_path, "w") as f:
-            f.write("epoch,step,loss,elapsed_s\n")
+            f.write("epoch,step,loss,val_loss,elapsed_s\n")
 
     def save_checkpoint(path: Path, epoch: int):
         torch.save(
             {"model": model.state_dict(), "optimizer": optimizer.state_dict(),
-             "scaler": scaler.state_dict(), "epoch": epoch, "global_step": global_step},
+             "scaler": scaler.state_dict(), "epoch": epoch, "global_step": global_step,
+             "best_val_loss": best_val_loss},
             path,
         )
 
@@ -176,9 +199,20 @@ def main():
         avg_loss = epoch_loss / max(n_batches, 1)
         elapsed = time.time() - t_start
         last_epoch_duration = time.time() - epoch_t0
-        print(f"epoch {epoch+1}/{args.epochs}  loss={avg_loss:.4f}  elapsed={elapsed:.0f}s  epoch_dur={last_epoch_duration:.0f}s")
+
+        val_loss_str = ""
+        val_loss = None
+        if args.val_every_epochs > 0 and ((epoch + 1) % args.val_every_epochs == 0 or epoch == args.epochs - 1):
+            val_loss = run_validation(model, val_loader, criterion, device, amp_enabled, amp_torch_dtype)
+            val_loss_str = f"  val_loss={val_loss:.4f}"
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                save_checkpoint(best_path, epoch + 1)
+                val_loss_str += " (best, saved)"
+
+        print(f"epoch {epoch+1}/{args.epochs}  loss={avg_loss:.4f}{val_loss_str}  elapsed={elapsed:.0f}s  epoch_dur={last_epoch_duration:.0f}s")
         with open(log_path, "a") as f:
-            f.write(f"{epoch+1},{global_step},{avg_loss:.6f},{elapsed:.1f}\n")
+            f.write(f"{epoch+1},{global_step},{avg_loss:.6f},{val_loss if val_loss is not None else ''},{elapsed:.1f}\n")
 
         if (epoch + 1) % args.checkpoint_every_epochs == 0 or epoch == args.epochs - 1:
             save_checkpoint(latest_path, epoch + 1)
