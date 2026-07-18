@@ -16,6 +16,11 @@ venv/
 .DS_Store
 Thumbs.db
 
+# Credentials -- never commit
+kaggle.json
+kaggle*.json
+.kaggle/
+
 # Logs / experiment tracking
 runs/
 wandb/
