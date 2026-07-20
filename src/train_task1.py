@@ -53,6 +53,18 @@ def parse_args():
         help="Weight for the soft-clDice topology loss on the final prediction (0 disables). Targets the COR/INF "
              "gap directly -- real data showed COR ~0.1-0.3 vs the #1 team's ~0.78, INF ~0.7-0.9 vs their ~0.22.",
     )
+    p.add_argument(
+        "--vein-pos-weight", type=float, default=None,
+        help="Separate (higher) pos_weight for the vein channel only, mirroring train_task2.py. Real leaderboard "
+             "data (2026-07-19) showed Task1's vein topology can crater (COR 0.54->0.32, INF 0.45->0.68) from further "
+             "training under symmetric weighting while artery improves -- None (default) keeps it equal to --pos-weight.",
+    )
+    p.add_argument(
+        "--vein-topology-ratio", type=float, default=1.0,
+        help="Relative weight of vein vs artery inside the clDice term (artery fixed at 1.0). Same motivation as "
+             "--vein-pos-weight. Task2's leaderboard data (2026-07-19) showed an aggressive ratio (2.0) overcorrects "
+             "and drags the OTHER channel's topology down more than it helps -- keep this mild (~1.2-1.4) for Task1.",
+    )
     p.add_argument("--out-dir", type=str, default="runs/task1")
     p.add_argument("--max-steps", type=int, default=None, help="Smoke-test override: stop after N total steps")
     p.add_argument("--max-seconds", type=float, default=None, help="Wall-clock budget (e.g. Kaggle's ~9-12h session cap); checkpoints and exits cleanly before the limit")
@@ -107,9 +119,13 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = build_model("task1", base_ch=args.base_ch, iterations=args.iterations, pretrained=args.pretrained).to(device)
 
-    base_criterion = BCE3Loss(pos_weight=args.pos_weight if args.pos_weight > 0 else None)
+    base_criterion = BCE3Loss(
+        pos_weight=args.pos_weight if args.pos_weight > 0 else None,
+        vein_pos_weight=args.vein_pos_weight if args.pos_weight > 0 else None,
+    )
     if args.cldice_weight > 0:
-        criterion = RRClDiceLoss(base_criterion, ArteryVeinClDiceLoss(), cldice_weight=args.cldice_weight)
+        cldice_loss = ArteryVeinClDiceLoss(artery_weight=1.0, vein_weight=args.vein_topology_ratio)
+        criterion = RRClDiceLoss(base_criterion, cldice_loss, cldice_weight=args.cldice_weight)
     else:
         criterion = RRLoss(base_criterion)
     criterion = criterion.to(device)  # pos_weight is a buffer, must move with the module

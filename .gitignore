@@ -30,3 +30,9 @@ outputs/
 # Generated predictions / submission packages
 predictions/
 submissions/
+
+# Kaggle output-pull scratch dirs (checkpoints recovered for local use)
+kaggle_pull/
+kaggle_pull2/
+kaggle_fold2_pull/
+kaggle/kernel_meta/

@@ -12,11 +12,12 @@ import traceback
 from pathlib import Path
 
 import numpy as np
+import torch
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from biomarkers.compute import compute_biomarkers  # noqa: E402
-from od_localization.heuristic import find_od_heuristic  # noqa: E402
+from od_localization.segformer_od import find_od_segformer  # noqa: E402
 
 
 def main():
@@ -34,6 +35,9 @@ def main():
     images_dir = Path(args.images_dir)
     masks_dir = Path(args.masks_dir)
 
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"OD detector device: {device}")
+
     av_paths = sorted(av_dir.glob("*.png"))
     print(f"Computing Task3 biomarkers for {len(av_paths)} cases -> {out_dir}")
     for av_path in av_paths:
@@ -44,7 +48,8 @@ def main():
 
             image = np.array(Image.open(images_dir / f"{name}.png").convert("RGB"))
             roi = np.array(Image.open(masks_dir / f"{name}.png").convert("L"))
-            od_mask = find_od_heuristic(image, roi)
+            od_mask = find_od_segformer(image, device=device)
+            od_mask[roi == 0] = 0  # clip to field-of-view in case the model fires outside it
 
             result = compute_biomarkers(av_bin, od_mask)
 
