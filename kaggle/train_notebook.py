@@ -5,7 +5,7 @@
 # 1. Notebook settings (right panel) -> Accelerator: GPU T4 x2 (or P100).
 #    Internet: On (needed for git clone + Hugging Face weights download).
 # 2. Add-ons -> Secrets -> add a secret named `GH_TOKEN` containing a GitHub
-#    Personal Access Token (classic, `repo` scope) for aaronjji/gave2-challenge
+#    Personal Access Token (classic, `repo` scope) for aaronjji/rk8391-devbox
 #    (it's a private repo). Attach the secret to this notebook.
 # 3. Upload the GAVE2_preliminary dataset as a **PRIVATE** Kaggle Dataset
 #    (Create -> New Dataset -> upload the extracted data/raw/GAVE2_preliminary
@@ -24,7 +24,7 @@ import os
 from kaggle_secrets import UserSecretsClient
 
 token = UserSecretsClient().get_secret("GH_TOKEN")
-repo_url = f"https://{token}@github.com/aaronjji/gave2-challenge.git"
+repo_url = f"https://{token}@github.com/aaronjji/rk8391-devbox.git"
 
 if not os.path.exists("/kaggle/working/gave2-challenge"):
     os.system(f"git clone --recurse-submodules {repo_url} /kaggle/working/gave2-challenge")
