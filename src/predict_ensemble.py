@@ -75,6 +75,11 @@ def main():
     image_paths = sorted(images_dir.glob("*.png"))
     print(f"Running {args.task} ensemble inference ({len(models)}-way) on {len(image_paths)} images -> {out_dir}")
     for img_path in image_paths:
+        out_path = out_dir / img_path.name
+        if out_path.exists():
+            print(f"  {img_path.name} (already done, skipping)")
+            continue
+
         image = np.array(Image.open(img_path).convert("RGB"))
 
         ffa = None
@@ -110,7 +115,7 @@ def main():
         if args.quantize_levels > 0:
             n = args.quantize_levels - 1
             out_img = (np.round(out_img.astype(np.float32) / 255 * n) / n * 255).astype(np.uint8)
-        Image.fromarray(out_img, mode="RGB").save(out_dir / img_path.name, compress_level=9)
+        Image.fromarray(out_img, mode="RGB").save(out_path, compress_level=9)
         print(f"  {img_path.name}")
 
 
