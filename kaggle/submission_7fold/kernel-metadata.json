@@ -1,0 +1,22 @@
+{
+  "id": "aaronajit/gave2-7fold-submission",
+  "title": "gave2-7fold-submission",
+  "code_file": "submission.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "keywords": ["gpu"],
+  "dataset_sources": [
+    "aaronajit/gave2-preliminary",
+    "aaronajit/gave2-registered",
+    "aaronajit/gave2-task1-7fold-ckpts",
+    "aaronajit/gave2-task2-7fold-ckpts"
+  ],
+  "kernel_sources": [],
+  "competition_sources": [],
+  "model_sources": [],
+  "machine_shape": "NvidiaTeslaT4"
+}
