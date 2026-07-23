@@ -10,10 +10,11 @@ import time
 from pathlib import Path
 
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import ConcatDataset, DataLoader, WeightedRandomSampler
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from datasets.gave_dataset import GaveAVDataset  # noqa: E402
+from datasets.pseudo_label_dataset import PseudoLabelDataset  # noqa: E402
 from datasets.splits import kfold_case_ids  # noqa: E402
 from losses.rrloss import BCE3Loss, RRLoss, RRClDiceLoss  # noqa: E402
 from losses.cldice import ArteryVeinClDiceLoss  # noqa: E402
@@ -76,6 +77,27 @@ def parse_args():
     )
     p.add_argument("--resume", action="store_true", help="Resume from out_dir/fold{N}/latest.pth if present")
     p.add_argument("--seed", type=int, default=77)
+    p.add_argument("--device", type=str, default=None, help="Override device (e.g. 'cpu') -- for smoke-testing without touching a GPU that's busy elsewhere")
+    p.add_argument(
+        "--pseudo-images-dir", type=str, default=None,
+        help="Self-training: dir of unlabeled images to pseudo-label from --pseudo-pred-dir "
+             "(e.g. data/raw/GAVE2_preliminary/validation/images). None disables self-training entirely.",
+    )
+    p.add_argument("--pseudo-masks-dir", type=str, default=None, help="ROI masks for the pseudo images")
+    p.add_argument(
+        "--pseudo-pred-dir", type=str, default=None,
+        help="Our own ensemble's quantized probability-map predictions on the pseudo images "
+             "(e.g. predictions/task1/validation_ensemble) -- source of the pseudo-labels",
+    )
+    p.add_argument(
+        "--pseudo-weight", type=float, default=0.3,
+        help="Fraction of training samples drawn from the pseudo-labeled set per epoch (0-1). "
+             "Kept well under 0.5 -- pseudo-labels are noisier than real GT even after confidence filtering.",
+    )
+    p.add_argument(
+        "--pseudo-case-limit", type=int, default=None,
+        help="Use only the first N pseudo cases (sorted) -- for a cheap initial validated trial before scaling to the full unlabeled set.",
+    )
     return p.parse_args()
 
 
@@ -113,10 +135,28 @@ def main():
         args.data_root, split="training", case_ids=val_ids, patch_size=args.patch_size,
         use_ffa=False, train=False, seed=args.seed + 1,
     )
-    train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, drop_last=True)
+
+    if args.pseudo_images_dir:
+        assert args.pseudo_masks_dir and args.pseudo_pred_dir, "--pseudo-masks-dir and --pseudo-pred-dir required with --pseudo-images-dir"
+        pseudo_names = sorted(p.stem for p in Path(args.pseudo_images_dir).glob("*.png"))
+        if args.pseudo_case_limit:
+            pseudo_names = pseudo_names[: args.pseudo_case_limit]
+        pseudo_ds = PseudoLabelDataset(
+            images_dir=args.pseudo_images_dir, masks_dir=args.pseudo_masks_dir, pred_dir=args.pseudo_pred_dir,
+            case_names=pseudo_names, patch_size=args.patch_size, use_ffa=False, seed=args.seed,
+        )
+        print(f"Self-training: mixing in {len(pseudo_names)} pseudo-labeled cases at weight={args.pseudo_weight}")
+        combined_ds = ConcatDataset([train_ds, pseudo_ds])
+        real_w = (1.0 - args.pseudo_weight) / len(train_ds)
+        pseudo_w = args.pseudo_weight / len(pseudo_ds)
+        sample_weights = [real_w] * len(train_ds) + [pseudo_w] * len(pseudo_ds)
+        sampler = WeightedRandomSampler(sample_weights, num_samples=len(combined_ds), replacement=True)
+        train_loader = DataLoader(combined_ds, batch_size=args.batch_size, sampler=sampler, num_workers=args.num_workers, drop_last=True)
+    else:
+        train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, drop_last=True)
     val_loader = DataLoader(val_ds, batch_size=1, shuffle=False, num_workers=0)
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device(args.device) if args.device else torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = build_model("task1", base_ch=args.base_ch, iterations=args.iterations, pretrained=args.pretrained).to(device)
 
     base_criterion = BCE3Loss(
